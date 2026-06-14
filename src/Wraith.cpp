@@ -5,6 +5,7 @@
 #include "Features/M2/MD21.hpp"
 #include "Features/Anim/Anim.hpp"
 #include "Features/Ribbon/Ribbon.hpp"
+#include "Features/DB2/DB2Mgr.hpp"
 
 extern "C" __declspec(dllexport) void Wraith() {}
 
@@ -21,6 +22,7 @@ namespace
         wraith::features::m2::Install();
         wraith::features::anim::Install();
         wraith::features::ribbon::Install();
+        wraith::features::db2::Install();
 
         if (!wraith::hook::EnableAll())
             return 1;

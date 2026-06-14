@@ -31,13 +31,17 @@ namespace wraith::offsets
     // Size of the engine .skin path buffer the loader passes to M2_BuildSkinPath.
     constexpr uint32_t  M2_SkinPathBufSize = 0x108;
 
-    // Storage file API the .skin loader uses to read a file.
-    // Open __cdecl(0, path, flag, &handle) -> nonzero on success, fills handle.
+    // Storage file API the .skin loader uses to read a file. All __stdcall (callee-cleaned).
+    // Open __stdcall(0, path, flag, &handle) -> nonzero on success, fills handle.
     constexpr uintptr_t Storage_FileOpen  = 0x00424B50;
-    // Map __cdecl(handle, &sizeOut) -> mapped file bytes pointer (0 on failure); sizeOut may be null.
-    constexpr uintptr_t Storage_FileMap   = 0x004218C0;
-    // Close __cdecl(handle).
+    // Size __stdcall(handle, &sizeHigh) -> file size low dword (sizeHigh gets the high dword).
+    constexpr uintptr_t Storage_FileSize  = 0x004218C0;
+    // Close __stdcall(handle).
     constexpr uintptr_t Storage_FileClose = 0x00422910;
+    // Read __stdcall(handle, dst, bytesToRead, &bytesRead|0, 0, 0) -> nonzero on success.
+    constexpr uintptr_t Storage_FileRead  = 0x00422530;
+    // OpenFileEx flag the stock DBC loader passes
+    constexpr uint32_t  Storage_OpenFlag  = 0x20000;
 
     // --- M2 external .anim ---
     // External .anim read-completion callback __cdecl(node): runs once after the file bytes are read into
