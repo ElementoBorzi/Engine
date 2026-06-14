@@ -1,5 +1,6 @@
 #include "Features/DB2/DB2Mgr.hpp"
 
+#include "Features/Ipc/ShmClient.hpp"
 #include "Core/Logger.hpp"
 
 namespace wraith::features::db2
@@ -12,6 +13,8 @@ namespace wraith::features::db2
 
     void Install()
     {
+        // Launch the 64-bit host (if not already up) so it loads its tables while the game starts.
+        ipc::EnsureHostRunning();
         // Loading is lazy and driven by the Definition singletons; the probe is a temporary verification.
         InstallCharSectionsProbe();
         WLOG_INFO("DB2: subsystem ready");

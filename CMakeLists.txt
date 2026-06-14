@@ -18,12 +18,16 @@ file(GLOB_RECURSE WRAITH_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/
 file(GLOB_RECURSE D3D12_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/Features/D3D12/*.cpp")
 list(REMOVE_ITEM WRAITH_SOURCES ${D3D12_SOURCES})
 
+# FlatBuffers runtime (used by the IPC client for the FlexBuffers payload).
+list(APPEND WRAITH_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/vendor/flatbuffers/src/util.cpp")
+
 add_library(Wraith SHARED ${WRAITH_SOURCES})
 set_target_properties(Wraith PROPERTIES OUTPUT_NAME "Wraith" PREFIX "")
 
 target_include_directories(Wraith PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/minhook/include")
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/minhook/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/flatbuffers/include")
 
 target_link_libraries(Wraith PRIVATE minhook)
 target_compile_definitions(Wraith PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
