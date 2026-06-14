@@ -18,11 +18,11 @@ namespace
     HANDLE g_reqEvent = nullptr;
     HANDLE g_respEvent = nullptr;
     uint8_t* g_base = nullptr;
-    std::unordered_map<uint64_t, std::string> g_cache; // (op<<32 | fdid) -> path ("" = known-absent)
+    std::unordered_map<uint64_t, std::string> g_cache; // request key -> path ("" = known-absent)
 
     constexpr uint32_t kRequestTimeoutMs = 2000;
 
-    // Directory of this module (Wraith.dll), where WraithHost.exe is deployed alongside it.
+    // Directory of this module.
     std::string ModuleDir()
     {
         HMODULE hm = nullptr;
@@ -74,34 +74,61 @@ namespace
         if (g_reqEvent) { CloseHandle(g_reqEvent); g_reqEvent = nullptr; }
         if (g_respEvent) { CloseHandle(g_respEvent); g_respEvent = nullptr; }
     }
+
+    // Send one request and wait for the response. Assumes g_mutex held and connected. On success the response
+    // is at g_base+kHeaderSize, length hdr->respLen.
+    bool SendLocked(const std::vector<uint8_t>& req)
+    {
+        if (req.size() > kPayloadMax) return false;
+        auto* hdr = reinterpret_cast<ControlHeader*>(g_base);
+        uint8_t* payload = g_base + kHeaderSize;
+        memcpy(payload, req.data(), req.size());
+        hdr->reqLen = static_cast<uint32_t>(req.size());
+        ++hdr->reqSeq;
+        SetEvent(g_reqEvent);
+        if (WaitForSingleObject(g_respEvent, kRequestTimeoutMs) != WAIT_OBJECT_0)
+        {
+            DisconnectLocked();
+            return false;
+        }
+        return true;
+    }
 }
 
 namespace wraith::features::ipc
 {
     void EnsureHostRunning()
     {
-        // Already up? (the host created the mailbox)
         HANDLE existing = OpenFileMappingA(FILE_MAP_READ, FALSE, kShmName);
         if (existing) { CloseHandle(existing); return; }
 
-        // The host and its data live in the client's "Utils\" subfolder.
         std::string dir = ModuleDir() + "\\Utils";
         std::string exe = dir + "\\WraithHost.exe";
 
-        // Pass our PID so the host can exit when this client closes.
+        // --client-pid lets the host exit when this client closes.
         char cmd[128];
         wsprintfA(cmd, "WraithHost.exe --client-pid %lu", GetCurrentProcessId());
 
         STARTUPINFOA si{};
         si.cb = sizeof(si);
         PROCESS_INFORMATION pi{};
-        // Own console window (shows the live client<->host IPC); cwd = host dir (data + logs resolve there).
         if (CreateProcessA(exe.c_str(), cmd, nullptr, nullptr, FALSE,
                            CREATE_NEW_CONSOLE, nullptr, dir.c_str(), &si, &pi))
         {
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
         }
+    }
+
+    bool WaitForHost(uint32_t timeoutMs)
+    {
+        for (uint32_t waited = 0; waited < timeoutMs; waited += 50)
+        {
+            HANDLE h = OpenFileMappingA(FILE_MAP_READ, FALSE, kShmName);
+            if (h) { CloseHandle(h); return true; }
+            Sleep(50);
+        }
+        return false;
     }
 
     bool Connect()
@@ -126,7 +153,7 @@ namespace wraith::features::ipc
         auto it = g_cache.find(key);
         if (it != g_cache.end()) return it->second;
 
-        if (!ConnectLocked()) return ""; // host absent: do not cache, so a later host start is picked up
+        if (!ConnectLocked()) return ""; // absent: do not cache
 
         auto* hdr = reinterpret_cast<ControlHeader*>(g_base);
         uint8_t* payload = g_base + kHeaderSize;
@@ -143,7 +170,7 @@ namespace wraith::features::ipc
 
         if (WaitForSingleObject(g_respEvent, kRequestTimeoutMs) != WAIT_OBJECT_0)
         {
-            DisconnectLocked(); // host stalled/died; reconnect next time
+            DisconnectLocked();
             return "";
         }
 
@@ -154,7 +181,7 @@ namespace wraith::features::ipc
             if (vec[0].AsUInt32() == StOk) result = vec[1].AsString().str();
         }
 
-        g_cache[key] = result; // cache connected results (including known-absent "")
+        g_cache[key] = result; // cache connected results, incl. ""
         return result;
     }
 
@@ -163,5 +190,76 @@ namespace wraith::features::ipc
     std::string MaterialPath(uint32_t materialResId, uint32_t textureType)
     {
         return Resolve(OpResolveMaterial, materialResId, textureType);
+    }
+
+    FileOpenResult FileOpen(const std::string& name, uint32_t flags)
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!ConnectLocked()) return { false, 0, 0, {} };
+
+        flexbuffers::Builder fbb;
+        fbb.Vector([&]() { fbb.UInt(OpFileOpen); fbb.String(name); fbb.UInt(flags); });
+        fbb.Finish();
+        if (!SendLocked(fbb.GetBuffer())) return { false, 0, 0, {} };
+
+        auto* hdr = reinterpret_cast<ControlHeader*>(g_base);
+        if (!hdr->respLen || hdr->respLen > kPayloadMax) return { false, 0, 0, {} };
+        auto vec = flexbuffers::GetRoot(g_base + kHeaderSize, hdr->respLen).AsVector();
+        if (vec[0].AsUInt32() != StOk) return { false, 0, 0, {} };
+
+        FileOpenResult r{ true, vec[1].AsUInt32(), vec[2].AsUInt32(), {} };
+        if (r.id == 0 && vec.size() > 3) // inline: copy bytes out of the shared window
+        {
+            auto blob = vec[3].AsBlob();
+            r.inlineData.assign(blob.data(), blob.data() + blob.size());
+        }
+        return r;
+    }
+
+    uint32_t FileReadChunk(uint32_t id, uint32_t off, void* dst, uint32_t cap)
+    {
+        if (cap > kFileChunkMax) cap = kFileChunkMax;
+
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!ConnectLocked()) return 0;
+
+        flexbuffers::Builder fbb;
+        fbb.Vector([&]() { fbb.UInt(OpFileRead); fbb.UInt(id); fbb.UInt(off); fbb.UInt(cap); });
+        fbb.Finish();
+        if (!SendLocked(fbb.GetBuffer())) return 0;
+
+        auto* hdr = reinterpret_cast<ControlHeader*>(g_base);
+        if (!hdr->respLen || hdr->respLen > kPayloadMax) return 0;
+        auto vec = flexbuffers::GetRoot(g_base + kHeaderSize, hdr->respLen).AsVector();
+        if (vec[0].AsUInt32() != StOk) return 0;
+        auto blob = vec[1].AsBlob();
+        uint32_t n = static_cast<uint32_t>(blob.size());
+        if (n > cap) n = cap;
+        memcpy(dst, blob.data(), n);
+        return n;
+    }
+
+    void FileClose(uint32_t id)
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!ConnectLocked()) return;
+        flexbuffers::Builder fbb;
+        fbb.Vector([&]() { fbb.UInt(OpFileClose); fbb.UInt(id); });
+        fbb.Finish();
+        SendLocked(fbb.GetBuffer());
+    }
+
+    bool FileExists(const std::string& name)
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!ConnectLocked()) return false;
+        flexbuffers::Builder fbb;
+        fbb.Vector([&]() { fbb.UInt(OpFileExists); fbb.String(name); });
+        fbb.Finish();
+        if (!SendLocked(fbb.GetBuffer())) return false;
+        auto* hdr = reinterpret_cast<ControlHeader*>(g_base);
+        if (!hdr->respLen || hdr->respLen > kPayloadMax) return false;
+        auto vec = flexbuffers::GetRoot(g_base + kHeaderSize, hdr->respLen).AsVector();
+        return vec[0].AsUInt32() == StOk;
     }
 }

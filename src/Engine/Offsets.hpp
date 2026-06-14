@@ -31,16 +31,20 @@ namespace wraith::offsets
     // Size of the engine .skin path buffer the loader passes to M2_BuildSkinPath.
     constexpr uint32_t  M2_SkinPathBufSize = 0x108;
 
-    // Storage file API the .skin loader uses to read a file. All __stdcall (callee-cleaned).
-    // Open __stdcall(0, path, flag, &handle) -> nonzero on success, fills handle.
+    // Storm file API. All __stdcall (callee-cleaned). Hooked by Features/Storage to serve reads from the host.
+    // Open __stdcall(archiveOrNull, path, flag, &handle) -> nonzero, fills handle.
     constexpr uintptr_t Storage_FileOpen  = 0x00424B50;
-    // Size __stdcall(handle, &sizeHigh) -> file size low dword (sizeHigh gets the high dword).
+    // Second open entry: thin SFileOpenFileEx __stdcall(archiveOrNull, name, flags, &handle) -> bool.
+    constexpr uintptr_t Storage_FileOpen2 = 0x00422040;
+    // Size __stdcall(handle, &sizeHigh) -> file size low dword.
     constexpr uintptr_t Storage_FileSize  = 0x004218C0;
+    // Read __stdcall(handle, dst, len, &read|0, 0, 0) -> nonzero.
+    constexpr uintptr_t Storage_FileRead  = 0x00422530;
+    // Seek __stdcall(handle, distLow, distHigh, method) -> newPosLow; method 0=BEGIN,1=CURRENT,2=END.
+    constexpr uintptr_t Storage_FileSeek  = 0x00421BB0;
     // Close __stdcall(handle).
     constexpr uintptr_t Storage_FileClose = 0x00422910;
-    // Read __stdcall(handle, dst, bytesToRead, &bytesRead|0, 0, 0) -> nonzero on success.
-    constexpr uintptr_t Storage_FileRead  = 0x00422530;
-    // OpenFileEx flag the stock DBC loader passes
+    // Flag: open and load the whole file into the handle buffer.
     constexpr uint32_t  Storage_OpenFlag  = 0x20000;
 
     // --- M2 external .anim ---
@@ -60,6 +64,31 @@ namespace wraith::offsets
     constexpr uintptr_t CM2_SetupBatchAlpha = 0x0081FE90;
     // Pushes the alpha-test reference to the device (pixel constant / D3DRS_ALPHAREF).
     constexpr uintptr_t CM2_PushAlphaRef    = 0x00873BA0;
+
+    // --- M2 bone palette (per-frame skinning matrices; the hook point for bone-physics) ---
+    // Per-instance bone-palette build __thiscall(instance, ...): fills the model-space 4x4 bone matrices
+    // for one instance from the current animation pose. Runs each frame before the batch draw uploads the
+    // palette to the vertex shader, so its return is the slot to adjust bones (e.g. physics). Not recursive.
+    constexpr uintptr_t CM2_BuildBonePalette = 0x0082F0F0;
+    // CM2Instance fields.
+    constexpr uint32_t  Instance_Model       = 0x2C;   // -> CM2Model
+    constexpr uint32_t  Instance_BonePalette = 0x98;   // -> bone matrices, row-major 4x4, stride 0x40
+    // CM2Model fields: the model path stem (no extension; used to derive sibling files like .phys) and the
+    // parsed M2 header.
+    constexpr uint32_t  Model_PathStem       = 0x3C;
+    constexpr uint32_t  Model_Header         = 0x150;
+    // M2 header fields: global flags (bit 0x20 = the model carries physics) and the bone count.
+    constexpr uint32_t  Header_GlobalFlags   = 0x10;
+    constexpr uint32_t  Header_BoneCount     = 0x2C;
+    constexpr uint32_t  Header_BoneArray     = 0x30;   // -> M2 bone records (post-fixup data ptr)
+    constexpr uint32_t  BonePalette_Stride   = 0x40;
+    // M2 bone record (file struct in Header_BoneArray): stride and flags field.
+    constexpr uint32_t  M2Bone_Stride        = 0x58;
+    constexpr uint32_t  M2Bone_Flags         = 0x04;   // u32 bone flags
+    constexpr uint32_t  M2Bone_Parent        = 0x08;   // int16 parent bone index (0xFFFF = root)
+    constexpr uint32_t  M2Bone_Pivot         = 0x4C;   // C3Vector pivot (bone origin in bind space)
+    // M2 bone flags: 0x78 = billboard bits (spherical 0x8 + cylindrical-lock x/y/z 0x10/0x20/0x40).
+    constexpr uint32_t  kBoneBillboardMask   = 0x78;
 
     // --- M2 ribbon ---
     // Ribbon-emitter de-relocator: pointer-fixes each ribbon's sub-array offsets (textureIndices,

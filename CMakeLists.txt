@@ -45,6 +45,14 @@ target_compile_definitions(d3d9 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE
 add_executable(Patcher "${CMAKE_CURRENT_SOURCE_DIR}/Patcher/Patcher.cpp")
 set_target_properties(Patcher PROPERTIES OUTPUT_NAME "WraithPatcher")
 
+# Host: the 64-bit WraithHost.exe. Built as a sub-build (own -A x64) so one build produces everything.
+set(WRAITH_HOST_EXE "${CMAKE_BINARY_DIR}/host/Release/WraithHost.exe")
+add_custom_target(WraithHost ALL
+    COMMAND ${CMAKE_COMMAND} -S "${CMAKE_CURRENT_SOURCE_DIR}/Host" -B "${CMAKE_BINARY_DIR}/host" -A x64
+    COMMAND ${CMAKE_COMMAND} --build "${CMAKE_BINARY_DIR}/host" --config Release
+    BYPRODUCTS "${WRAITH_HOST_EXE}"
+    VERBATIM)
+
 # Deploy to the client after build (set -DCLIENT_PATH=... at configure time).
 set(CLIENT_PATH "" CACHE PATH "Path to the client directory")
 if(NOT CLIENT_PATH STREQUAL "")
@@ -56,5 +64,9 @@ if(NOT CLIENT_PATH STREQUAL "")
         VERBATIM)
     add_custom_command(TARGET d3d9 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:d3d9>" "${CLIENT_PATH}/d3d9.dll"
+        VERBATIM)
+    add_custom_command(TARGET WraithHost POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CLIENT_PATH}/Utils"
+        COMMAND ${CMAKE_COMMAND} -E copy "${WRAITH_HOST_EXE}" "${CLIENT_PATH}/Utils/WraithHost.exe"
         VERBATIM)
 endif()
