@@ -24,6 +24,8 @@
 
 #include "DB2File.hpp"
 
+namespace wraith::host::mpq { class MpqStore; }
+
 // The resolution AUTHORITY. Loads the path tables
 // (TextureFilePath, ModelFilePath, TextureFileData) and answers FDID/MRID -> path. The
 // DLL caches results over IPC; this side owns the data. WDC1/2/3 decode is shared.
@@ -32,8 +34,9 @@ namespace wraith::host::db2
     class Db2Store
     {
     public:
-        // Load the required tables from the client data tree under dataDir (client root).
-        bool Load(std::string_view dataDir);
+        // Read the supported resolution tables BY NAME through the host archive system (mpq). A
+        // table the archives lack (or that fails to decode) is skipped, not fatal. No paths.
+        bool Load(const wraith::host::mpq::MpqStore& mpq);
 
         // FileDataID -> file path. Tries the texture table, then the model table.
         bool ResolveFile(uint32_t fileDataId, std::string& outPath) const;
@@ -44,7 +47,7 @@ namespace wraith::host::db2
     private:
         // Both *FilePath.db2 decode to {uint32 id; int32 path}.
         struct PathRow { uint32_t id; int32_t path; };
-        // texturefiledata.db2 -> {FileDataID, MaterialResourcesID, textureType, relMRID}.
+        // TextureFileData.db2 -> {FileDataID, MaterialResourcesID, textureType, relMRID}.
         struct TexDataRow { uint32_t fileDataId; uint32_t materialResId; uint32_t textureType; uint32_t rel; };
 
         // MaterialResourcesID -> FileDataID, preferring textureType == want, then 2, then any.

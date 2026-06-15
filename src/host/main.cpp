@@ -700,11 +700,12 @@ namespace
         }
 
         g_clientRoot = ClientRoot();
-        if (!g_db2.Load(g_clientRoot))
-            wraith::core::log::Printf("host: WARNING resolve tables failed to load (FDID resolution disabled)");
 
-        // Mount the single channel's archive store up front (one archive-set open).
+        // Mount the archive set up front (one archive-set open), then read the resolution tables
+        // FROM the archives - never from a filesystem path.
         EnsureMounted(0);
+        if (!g_db2.Load(*g_mpq[0]))
+            wraith::core::log::Printf("host: WARNING resolve tables failed to load (FDID resolution disabled)");
 
         // Dependency prefetch pool: warms the byte cache with a served asset's direct deps so the client's
         // later synchronous opens hit the cache instead of stalling on a read + translate.

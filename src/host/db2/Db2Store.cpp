@@ -15,52 +15,44 @@
 
 #include "Db2Store.hpp"
 
+#include "MpqStore.hpp"
 #include "Logger.hpp"
 
 #include "DB2File.hpp"
 
-#include <fstream>
-#include <iterator>
+#include <cstdint>
+#include <vector>
 
 using wraith::features::db2::DB2File;
+using wraith::host::mpq::MpqStore;
 
 namespace
 {
-    bool LoadDisk(DB2File& table, const std::string& path)
+    // Read DBFilesClient\<name> through the host archive system and decode it. A table the archives
+    // do not carry (or that fails to decode) is logged and skipped - the host degrades rather than
+    // hard-failing on one table. No filesystem path is ever built; the name flows through the MPQ set
+    // exactly like any other asset.
+    bool LoadTable(const MpqStore& mpq, const char* name, DB2File& table)
     {
-        std::ifstream f(path, std::ios::binary);
-        if (!f) { wraith::core::log::Printf("db2: cannot open %s", path.c_str()); return false; }
-        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        return table.LoadBytes(buf.data(), static_cast<uint32_t>(buf.size()), path.c_str());
-    }
-
-    // Resolve a db2 by name under the client root.
-    std::string FindDb2(const std::string& root, const std::string& name)
-    {
-        std::string cands[] = {
-            root + "\\Data\\Patch-4.MPQ\\DBFilesClient\\" + name,
-            root + "\\" + name,
-        };
-        for (const std::string& p : cands)
+        std::vector<uint8_t> buf;
+        if (!mpq.ReadAll(std::string("DBFilesClient\\") + name, buf) || buf.empty())
         {
-            std::ifstream f(p, std::ios::binary);
-            if (f) return p;
+            wraith::core::log::Printf("db2: %s not in archives, skipped", name);
+            return false;
         }
-        return cands[0];
+        return table.LoadBytes(buf.data(), static_cast<uint32_t>(buf.size()), name);
     }
 }
 
 namespace wraith::host::db2
 {
-    bool Db2Store::Load(std::string_view dataDir)
+    bool Db2Store::Load(const MpqStore& mpq)
     {
-        std::string root(dataDir);
-        if (!root.empty() && (root.back() == '\\' || root.back() == '/')) root.pop_back();
-
-        bool ok = true;
-        ok &= LoadDisk(m_tex,     FindDb2(root, "TextureFilePath.db2"));
-        ok &= LoadDisk(m_model,   FindDb2(root, "ModelFilePath.db2"));
-        ok &= LoadDisk(m_texData, FindDb2(root, "texturefiledata.db2"));
+        // The resolution tables the host supports, read BY NAME through the archive system. Each is
+        // optional: a missing/unsupported table is skipped, resolution just degrades for it.
+        LoadTable(mpq, "TextureFilePath.db2", m_tex);
+        LoadTable(mpq, "ModelFilePath.db2",   m_model);
+        LoadTable(mpq, "TextureFileData.db2", m_texData);
 
         for (uint32_t i = 0; i < m_texData.RowCount(); ++i)
         {
@@ -70,7 +62,9 @@ namespace wraith::host::db2
 
         wraith::core::log::Printf("db2: loaded texpath=%u model=%u texdata=%u (MRID index=%zu)",
             m_tex.RowCount(), m_model.RowCount(), m_texData.RowCount(), m_mridIndex.size());
-        return ok;
+
+        // FDID resolution is possible as long as at least one path table loaded.
+        return m_tex.RowCount() != 0 || m_model.RowCount() != 0;
     }
 
     bool Db2Store::ResolveFile(uint32_t fileDataId, std::string& outPath) const
