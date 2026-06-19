@@ -1,8 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Build + deploy WraithEngine: Wraith.dll/d3d9.dll/WraithPatcher.exe (32-bit) and
-    WraithHost.exe (64-bit).
+    Build + deploy WarcraftXL: WarcraftXL.dll (injected), d3d9.dll (proxy) and wxl-patcher.exe (32-bit).
 
 .PARAMETER Config
     Build configuration. Default: Release.
@@ -10,20 +9,15 @@
 .PARAMETER ClientPath
     Client directory to deploy into. Optional once it has been cached by a first run.
 
-.PARAMETER Target
-    What to build: All (default), Dll (32-bit shim), or Host (64-bit translator).
-
 .PARAMETER Clean
     Delete the build directory before configuring (forces a from-scratch build).
 
 .PARAMETER AutoPatch
-    After the build, run WraithPatcher on the client's Wow.exe. The patcher is idempotent
+    After the build, run wxl-patcher on the client's Wow.exe. The patcher is idempotent
     (it skips an already-patched exe and backs the original up to Wow.exe.orig on first run).
 
 .EXAMPLE
     .\build.ps1
-.EXAMPLE
-    .\build.ps1 -Target Dll
 .EXAMPLE
     .\build.ps1 -ClientPath "D:\Path\To\Client" -Clean
 .EXAMPLE
@@ -32,17 +26,14 @@
 param(
     [string]$Config = "Release",
     [string]$ClientPath,
-    [ValidateSet("All", "Dll", "Host")]
-    [string]$Target = "All",
     [switch]$Clean,
     [switch]$AutoPatch
 )
 
 $ErrorActionPreference = "Stop"
 
-$root      = $PSScriptRoot
-$buildDll  = Join-Path $root "build\dll"
-$buildHost = Join-Path $root "build\host"
+$root     = $PSScriptRoot
+$buildDir = Join-Path $root "build\dll"
 
 if (-not (Test-Path (Join-Path $root "CMakeLists.txt"))) {
     throw "CMakeLists.txt is missing from '$root'. Place build.ps1 in the project root directory (next to CMakeLists.txt)."
@@ -58,8 +49,7 @@ function Get-CachedClientPath([string]$cacheDir) {
 }
 
 if (-not $ClientPath) {
-    $ClientPath = Get-CachedClientPath $buildDll
-    if (-not $ClientPath) { $ClientPath = Get-CachedClientPath $buildHost }
+    $ClientPath = Get-CachedClientPath $buildDir
 }
 if (-not $ClientPath) {
     throw "No client path is known. Run the command once with -ClientPath '<client folder>' (it will be stored in the CMake cache)."
@@ -81,8 +71,8 @@ function Invoke-Native([string]$exe, [string[]]$cmdArgs) {
     if ($LASTEXITCODE -ne 0) { throw "Failure ($LASTEXITCODE): $exe $($cmdArgs -join ' ')" }
 }
 
-function Build-Variant([string]$buildDir, [string]$arch, [string]$label) {
-    Write-Host "=== $label ===" -ForegroundColor Green
+function Build-Dll {
+    Write-Host "=== WarcraftXL.dll (32-bit) ===" -ForegroundColor Green
 
     if ($Clean -and (Test-Path $buildDir)) {
         Write-Host "Clean $buildDir" -ForegroundColor Yellow
@@ -93,7 +83,7 @@ function Build-Variant([string]$buildDir, [string]$arch, [string]$label) {
         -or $PSBoundParameters.ContainsKey('ClientPath') `
         -or (-not (Test-Path (Join-Path $buildDir "CMakeCache.txt")))
     if ($needConfigure) {
-        Invoke-Native "cmake" @("-S", $root, "-B", $buildDir, "-A", $arch, "-DCLIENT_PATH=$ClientPath")
+        Invoke-Native "cmake" @("-S", $root, "-B", $buildDir, "-A", "Win32", "-DCLIENT_PATH=$ClientPath")
     }
 
     Invoke-Native "cmake" @("--build", $buildDir, "--config", $Config, "--parallel")
@@ -101,10 +91,10 @@ function Build-Variant([string]$buildDir, [string]$arch, [string]$label) {
 }
 
 function Invoke-AutoPatch {
-    $patcher = Join-Path $ClientPath "WraithPatcher.exe"
-    if (-not (Test-Path $patcher)) { $patcher = Join-Path $buildDll "Release\WraithPatcher.exe" }
+    $patcher = Join-Path $ClientPath "wxl-patcher.exe"
+    if (-not (Test-Path $patcher)) { $patcher = Join-Path $buildDir "$Config\wxl-patcher.exe" }
     if (-not (Test-Path $patcher)) {
-        throw "WraithPatcher.exe not found. Build the Dll target first (.\build.ps1 -Target Dll)."
+        throw "wxl-patcher.exe not found. Build first (.\build.ps1)."
     }
     $wow = Join-Path $ClientPath "Wow.exe"
     if (-not (Test-Path $wow)) { throw "Wow.exe not found: $wow" }
@@ -116,8 +106,7 @@ function Invoke-AutoPatch {
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-if ($Target -eq "All" -or $Target -eq "Dll")  { Build-Variant $buildDll  "Win32" "Wraith.dll (32-bit)" }
-if ($Target -eq "All" -or $Target -eq "Host") { Build-Variant $buildHost "x64"   "WraithHost.exe (64-bit)" }
+Build-Dll
 if ($AutoPatch) { Invoke-AutoPatch }
 
 $sw.Stop()
