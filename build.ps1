@@ -27,13 +27,15 @@ param(
     [string]$Config = "Release",
     [string]$ClientPath,
     [switch]$Clean,
-    [switch]$AutoPatch
+    [switch]$AutoPatch,
+    [switch]$BuildHost
 )
 
 $ErrorActionPreference = "Stop"
 
-$root     = $PSScriptRoot
-$buildDir = Join-Path $root "build\dll"
+$root         = $PSScriptRoot
+$buildDir     = Join-Path $root "build\dll"
+$buildHostDir = Join-Path $root "build\host"
 
 if (-not (Test-Path (Join-Path $root "CMakeLists.txt"))) {
     throw "CMakeLists.txt is missing from '$root'. Place build.ps1 in the project root directory (next to CMakeLists.txt)."
@@ -90,6 +92,25 @@ function Build-Dll {
     Write-Host ""
 }
 
+function Build-Host {
+    Write-Host "=== WarcraftXLHost.exe (64-bit) ===" -ForegroundColor Green
+
+    if ($Clean -and (Test-Path $buildHostDir)) {
+        Write-Host "Clean $buildHostDir" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $buildHostDir
+    }
+
+    $needConfigure = $Clean `
+        -or $PSBoundParameters.ContainsKey('ClientPath') `
+        -or (-not (Test-Path (Join-Path $buildHostDir "CMakeCache.txt")))
+    if ($needConfigure) {
+        Invoke-Native "cmake" @("-S", $root, "-B", $buildHostDir, "-A", "x64", "-DWXL_BUILD_HOST=ON", "-DCLIENT_PATH=$ClientPath")
+    }
+
+    Invoke-Native "cmake" @("--build", $buildHostDir, "--config", $Config, "--parallel")
+    Write-Host ""
+}
+
 function Invoke-AutoPatch {
     $patcher = Join-Path $ClientPath "wxl-patcher.exe"
     if (-not (Test-Path $patcher)) { $patcher = Join-Path $buildDir "$Config\wxl-patcher.exe" }
@@ -107,6 +128,7 @@ function Invoke-AutoPatch {
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
 Build-Dll
+if ($BuildHost) { Build-Host }
 if ($AutoPatch) { Invoke-AutoPatch }
 
 $sw.Stop()

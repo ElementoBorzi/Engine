@@ -23,6 +23,7 @@
 #include "runtime/GameHooks.hpp"
 #include "runtime/InputHooks.hpp"
 #include "runtime/RenderHooks.hpp"
+#include "runtime/storage/StorageHook.hpp"
 
 // IAT anchor: the patcher adds an import of this symbol so the loader maps the DLL.
 extern "C" __declspec(dllexport) void WarcraftXL() {}
@@ -33,6 +34,8 @@ namespace
 
     DWORD WINAPI MainThread(LPVOID)
     {
+        wxl::runtime::storage::Install();
+
         // Wait for the graphics device (and hence the window), then install every detour that publishes the
         // events the runtime scripts subscribe to (the scripts themselves registered at load time). The
         // MinHook function detours are enabled in one batch after all installers have registered.

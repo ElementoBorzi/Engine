@@ -42,6 +42,7 @@ namespace wxl::events
         OnDoodadSpawn,   // a placed map doodad (CMapDoodad) was built (DoodadSpawnArgs)
         OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
         OnWorldLeave,    // the world/map is being torn down           (WorldLeaveArgs)
+        OnBeforeHostLaunch, // the DLL is about to launch the asset host (HostLaunchArgs)
         Count
     };
 
@@ -84,6 +85,10 @@ namespace wxl::events
     struct DoodadSpawnArgs   { void* doodad; };  // CMapDoodad just built (read transform via wxl::game::doodad)
     struct WorldEnterArgs    { uint32_t mapId; };
     struct WorldLeaveArgs    { uint32_t mapId; };
+    // The DLL is about to spawn the asset host (WarcraftXLHost.exe). A subscriber may set *cancel = true to
+    // suppress the auto-launch (e.g. it manages the host itself). exePath is the path about to be launched.
+    // cancel is never null and starts false. Fired once, before the CreateProcess.
+    struct HostLaunchArgs    { const char* exePath; bool* cancel; };
 
     using Handler = void (*)(void* user, const void* args);
 
