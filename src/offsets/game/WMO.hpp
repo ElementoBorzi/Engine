@@ -69,6 +69,19 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kPortalRect        = 0x00ADF58C; // float[5]: minX,minY,maxX,maxY,nearExtent
     constexpr uintptr_t kOutdoorEnabled    = 0x00ADF59C; // float; >= 0 when the outdoor pass runs
 
+    // --- camera-in-group containment (cull path) ---
+    constexpr uintptr_t kBspRaycastRefine = 0x007CB0C0;
+    // Group collision fields (group object). MOVI = u16[3] indices per face; MOVT = C3Vector vertices.
+    constexpr size_t kOffGroupBsp       = 0x64;  // CAaBsp container (null when the group has no BSP)
+    constexpr size_t kOffGroupMovi      = 0xE0;  // triangle vertex indices (u16[3] per face, stride 6)
+    constexpr size_t kOffGroupMovt      = 0xE8;  // vertices (C3Vector, stride 0x0C)
+    constexpr size_t kOffGroupMoviCount = 0x154; // MOVI face count
+    // CAaBsp fields (relative to kOffGroupBsp).
+    constexpr size_t kOffBspNodes     = 0x00; // node array pointer (0 when the group has no BSP)
+    constexpr size_t kOffBspMobr      = 0x08; // collision face-index array (u16 into MOVI)
+    constexpr size_t kOffBspMobrCount = 0x10; // collision face-index count
+    constexpr size_t kOffBspBboxMax   = 0x58; // local bbox max (3 floats); min at +0x4C
+
     // --- signatures ---
     // Root read-completion (root on stack).
     using Wmo_RootCompleteFn = void(__cdecl*)(void* root);
@@ -88,6 +101,7 @@ namespace wxl::offsets::game::wmo
     using Wmo_FrustumAabbTestFn = uint32_t(__fastcall*)(void* frustum, void* edx, void* bbox);
     using Wmo_HorizonAabbTestFn = uint32_t(__cdecl*)(void* bbox, uint32_t mode);
     using Wmo_CameraInGroupTestFn = uint32_t(__fastcall*)(void* root, void* edx, float* camA, float* camB, uint32_t groupIndex);
+    using Wmo_BspRaycastRefineFn = char(__fastcall*)(void* group, void* edx, float* seg, float* distScale, unsigned int mask, void* a3, void* a4, void* instance);
 
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
