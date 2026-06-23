@@ -145,6 +145,25 @@ namespace wxl::game::wmo
         return static_cast<off::Root*>(root)->groupArray[i];
     }
 
+    /**
+     * @brief Returns the inline file path of the map-object the camera is currently inside.
+     *
+     * The client keeps a pointer to the interior instance the camera is in (null when outdoors). That
+     * instance points to its root, which carries an inline NUL-terminated path. Reads both hops with
+     * null checks so an outdoor camera or a half-built instance yields null rather than a fault.
+     * @return The root path, or null when the camera is not inside any map-object.
+     */
+    inline const char* CurrentInteriorPath()
+    {
+        void* instance = *reinterpret_cast<void**>(off::kCurrentInteriorInstance);
+        if (!instance)
+            return nullptr;
+        void* root = *reinterpret_cast<void**>(static_cast<char*>(instance) + off::kOffInstanceRoot);
+        if (!root)
+            return nullptr;
+        return static_cast<char*>(root) + off::kOffNameInline;
+    }
+
     /** @brief Adds the WMO bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {

@@ -54,6 +54,57 @@ namespace wxl::offsets::game::adt
     // count (SMChunk.nLayers, 0..4) lives at header + 0x0C.
     constexpr size_t kOffChunkMcnkHeader = 0x110;
     constexpr size_t kOffMcnkNLayers     = 0x0C;
+    // Raw on-disk MCLY/MCAL base pointers (point into the resident MCNK block, all physical entries, not
+    // just the 4 materialized layers). The 4-byte field right before the MCLY payload is its sub-chunk
+    // size, so physical-layer-count = *(mclyBase - 4) / 0x10.
+    constexpr size_t kOffChunkMcly       = 0x12C;
+    constexpr size_t kOffChunkMcal       = 0x130;
+    // Primitive/draw-batch descriptor (the 145-vertex MCVT grid VB/IB) passed to the device Draw method.
+    constexpr size_t kOffChunkDrawBatch  = 0x90;
+    // Source of the tile tex-owner object: (*(chunkObj+0x20) & ~1) + 8.
+    constexpr size_t kOffChunkTexOwnerSrc = 0x20;
+    // Per-layer record array (4 slots, stride 0x14): +0x00 flags, +0x04 diffuse CGxTex*, +0x0C alpha
+    // CGxTex*, +0x10 back-ptr. Only the first nLayers (<=4) records exist.
+    constexpr size_t kOffChunkLayerRecords   = 0x34;
+    constexpr size_t kChunkLayerRecordStride = 0x14;
+
+    // --- terrain surface render (per-chunk draw + multi-pass extension) ---
+    // Per-chunk surface draw leaf (chunkObj is a stack arg, __cdecl): binds {layer diffuse @ sampler
+    // 0x15, layer alpha @ sampler 0x16} and issues one DrawIndexedPrimitive per layer (layer 0 opaque,
+    // 1..n alpha-over). The active variant is held in kSurfaceDrawFnPtr; this is the default body.
+    constexpr uintptr_t kSurfaceChunkDraw  = 0x007D0D70;
+    // Per-chunk draw fn-ptr the surface render dispatches through (selected by the draw-variant selector).
+    constexpr uintptr_t kSurfaceDrawFnPtr  = 0x00D25098;
+    // Every per-chunk surface-draw body the selector may install into kSurfaceDrawFnPtr: default, shadow,
+    // and the shader/hi-detail bodies, picked by the active graphics config. These are called through the
+    // indirect dispatch (__cdecl, chunkObj on the stack).
+    constexpr uintptr_t kSurfaceChunkDrawVariants[] = {
+        0x007D0D70, 0x007D0760, 0x007D13F0, 0x007D1AD0, 0x007D20A0, 0x007D2520,
+    };
+    // The shader-path per-chunk surface draw, called DIRECTLY by the surface driver (not via the indirect
+    // dispatch) when the pixel-shader terrain path is active. Convention is __thiscall (chunkObj in ECX).
+    // It draws one chunk per call with a single DIP: diffuse layer i at stage 0x15+i, a 4-channel combined
+    // alpha RT (chunkObj+0x84) at stage 0x15+nLayers, and a Terrain1/2/3 pixel shader indexed by nLayers.
+    constexpr uintptr_t kSurfaceChunkDrawShader = 0x007D2D70;
+    // CGxDevice singleton; vtable + 0xA8 = the Draw (DrawIndexedPrimitive) method (batch ptr + flag).
+    constexpr uintptr_t kGxDeviceSingleton = 0x00C5DF88;
+    constexpr size_t    kGxDeviceDrawVtbl  = 0xA8;
+    // CGxTex -> GxTex GPU handle resolve.
+    constexpr uintptr_t kTexResolve        = 0x004B6CB0;
+    // GxRsSet / SetTexture for a sampler slot (0x15 = diffuse stage, 0x16 = alpha stage).
+    constexpr uintptr_t kSetSamplerTexture = 0x00685F50;
+    // Sampler addr/filter state for the just-bound texture.
+    constexpr uintptr_t kSetSamplerState   = 0x00681450;
+    // Lazy texture loader for one tex-owner handle slot: slot[+4] = Load(slot[+0]).
+    constexpr uintptr_t kLazyLoadTexSlot   = 0x007D6980;
+    // Builds the per-layer alpha texture from a layer record's MCAL into record + 0x0C.
+    constexpr uintptr_t kBuildLayerAlpha   = 0x007B9DE0;
+    constexpr uint32_t  kSamplerDiffuse    = 0x15;
+    constexpr uint32_t  kSamplerAlpha      = 0x16;
+    // Tile tex-owner: per-tile texture-handle array, indexed by MCLY.textureId, stride 8
+    // ([+0] = MTEX filename ptr, [+4] = loaded CGxTex*). Covers the whole tile MTEX set.
+    constexpr size_t kOffTexOwnerHandleArray = 0x60;
+    constexpr size_t kTexOwnerHandleStride   = 0x08;
 
     // --- signatures ---
     // Chunk lookup (pos on stack) -> chunk object.

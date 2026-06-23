@@ -129,12 +129,15 @@ namespace wxl::offsets::engine::gx
         constexpr unsigned kSetRenderState         = 57;
         constexpr unsigned kGetRenderState         = 58;
         constexpr unsigned kSetTexture             = 65;
+        constexpr unsigned kGetTexture             = 66;
         constexpr unsigned kSetSamplerState        = 69;
         constexpr unsigned kDrawPrimitiveUP        = 83;
         constexpr unsigned kSetFVF                 = 89;
         constexpr unsigned kCreateVertexShader     = 91;
         constexpr unsigned kSetVertexShader        = 92;
+        constexpr unsigned kGetVertexShader        = 93;
         constexpr unsigned kSetVertexShaderConstantF = 94;
+        constexpr unsigned kGetVertexShaderConstantF = 95;
         constexpr unsigned kCreatePixelShader      = 106;
         constexpr unsigned kSetPixelShader         = 107;
         constexpr unsigned kGetPixelShader         = 108;
@@ -149,4 +152,13 @@ namespace wxl::offsets::engine::gx
     // Engine-internal shader-constant uploader: native this-in-ECX; declared with a dummy second
     // parameter so the trampoline keeps the trailing arguments on the stack.
     using Gx_SetShaderConstantFn = void(__fastcall*)(void* device, void* edx, uint32_t shaderType, uint32_t startReg, const float* data, uint32_t vec4Count);
+
+    // VS float-constant cache: 256-register software buffer (4 floats per register) that the
+    // kVtSetShaderConstant path writes; the pre-draw flush uploads only the dirty range to the device.
+    // The setter skips marking a register dirty when the incoming value equals the cached value, so a
+    // register whose cache entry already matches what we want to write is NOT re-uploaded to the device
+    // even if the device was clobbered by a different draw in the meantime.
+    constexpr uintptr_t kVsConstCache     = 0x00C5EFE8; // float[256*4]: register N at [N*4] floats
+    constexpr uintptr_t kVsDirtyRegStart  = 0x00C5FFEC; // uint32: lowest dirty register (0xFF = none)
+    constexpr uintptr_t kVsDirtyRegEnd    = 0x00C5FFE8; // uint32: highest dirty register (0 = none)
 }

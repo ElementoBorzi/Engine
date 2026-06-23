@@ -66,6 +66,11 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kHorizonAabbTest   = 0x0078FDC0; // (bbox, mode); 0=visible, 2=horizon-culled
     constexpr uintptr_t kCameraInGroupTest = 0x007AE880; // (root, camA, camB, groupIndex)
     constexpr uintptr_t kIndoorFlag        = 0x00CD87A4; // != 0 when camera is in an indoor group
+    // Same global as kIndoorFlag, read as a pointer: the map-object instance the camera is currently
+    // inside (null when outdoors). Its kOffInstanceRoot field points to the root that carries the path.
+    constexpr uintptr_t kCurrentInteriorInstance = 0x00CD87A4;
+    // Instance field: pointer to the owning root object (the one with the inline path at kOffNameInline).
+    constexpr size_t kOffInstanceRoot = 0xF4;
     constexpr uintptr_t kPortalRect        = 0x00ADF58C; // float[5]: minX,minY,maxX,maxY,nearExtent
     constexpr uintptr_t kOutdoorEnabled    = 0x00ADF59C; // float; >= 0 when the outdoor pass runs
 
