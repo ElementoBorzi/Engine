@@ -123,6 +123,33 @@ namespace wxl::host
      */
     void NotifyServed(std::string_view name, std::span<const uint8_t> bytes);
 
+    // --- FileDataID resolution (cold boundary) ---
+
+    /**
+     * @brief Resolves a FileDataID to an archive-internal path; returns true when resolved.
+     * @param fileDataId  the id to resolve
+     * @param outPath     receives the path when resolved
+     * @return true if this resolver mapped the id
+     */
+    using ResolveFn = bool (*)(uint32_t fileDataId, std::string& outPath);
+
+    /**
+     * @brief Registers a FileDataID resolver under a display name. A module owns the resolution table (e.g.
+     *        the DB2 path tables) and registers here; the asset transforms call ResolveFdid.
+     * @param name  display name for the resolver (logging)
+     * @param fn    resolver callback
+     */
+    void RegisterResolver(const char* name, ResolveFn fn);
+
+    /**
+     * @brief Runs the registered resolvers for `fileDataId`; returns true when one maps it. With no
+     *        registrant resolution fails and a transform falls back to its placeholder.
+     * @param fileDataId  the id to resolve
+     * @param outPath     receives the path when resolved
+     * @return true if a resolver claimed the id
+     */
+    bool ResolveFdid(uint32_t fileDataId, std::string& outPath);
+
     // --- host environment (set by the host at startup; read by modules that read the archives themselves,
     //     e.g. the prefetch pool mounting its own per-thread MpqStore) ---
 

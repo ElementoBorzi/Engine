@@ -39,6 +39,8 @@ namespace wxl::host
         std::vector<Hook<ExistsFn>>&    Existers()   { static std::vector<Hook<ExistsFn>>    v; return v; }
         /** @brief Returns the served observer hook list. */
         std::vector<Hook<ServedFn>>&    Serveds()    { static std::vector<Hook<ServedFn>>    v; return v; }
+        /** @brief Returns the FileDataID resolver list. */
+        std::vector<Hook<ResolveFn>>&   Resolvers()  { static std::vector<Hook<ResolveFn>>   v; return v; }
     }
 
     /**
@@ -90,6 +92,18 @@ namespace wxl::host
     }
 
     /**
+     * @brief Appends a FileDataID resolver to the list, ignoring a null callback.
+     * @param name  display name for the resolver
+     * @param fn    resolver callback
+     */
+    void RegisterResolver(const char* name, ResolveFn fn)
+    {
+        if (!fn) return;
+        Resolvers().push_back({ name, fn });
+        wxl::core::log::Printf("host: + resolver '%s'", name ? name : "(unnamed)");
+    }
+
+    /**
      * @brief Runs each provider hook in order until one supplies the bytes.
      * @param name  file name requested
      * @param out   receives the supplied bytes
@@ -137,6 +151,19 @@ namespace wxl::host
     {
         for (const auto& h : Serveds())
             h.fn(name, bytes);
+    }
+
+    /**
+     * @brief Runs each resolver in order until one maps the FileDataID to a path.
+     * @param fileDataId  the id to resolve
+     * @param outPath     receives the path when resolved
+     * @return true if a resolver claimed the id
+     */
+    bool ResolveFdid(uint32_t fileDataId, std::string& outPath)
+    {
+        for (const auto& h : Resolvers())
+            if (h.fn(fileDataId, outPath)) return true;
+        return false;
     }
 
     /** @brief Returns the storage holding the client data root. */
