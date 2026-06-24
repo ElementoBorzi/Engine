@@ -106,6 +106,21 @@ namespace wxl::offsets::game::adt
     constexpr size_t kOffTexOwnerHandleArray = 0x60;
     constexpr size_t kTexOwnerHandleStride   = 0x08;
 
+    // --- terrain per-layer UV scale ---
+    // Builds the per-chunk terrain shader constant block (the 37 vec4s) and uploads it. c18..c21 are the
+    // four per-layer UV-tiling vec4s. Post-hooked to divide each drawn layer's c18+i.xy by its texture's
+    // modern scale (1<<exponent) and re-upload c18..c(18+layerCount-1). __cdecl, node = first arg; the node
+    // is the CMapChunk (layer count at kOffChunkNodeLayerCount, layer slots at kOffChunkLayerRecords).
+    constexpr uintptr_t kBuildTerrainConstants = 0x007D0050;
+    using Map_BuildTerrainConstantsFn = void(__cdecl*)(void* node, uint32_t a1, uint32_t a2);
+    // c18 constant data in memory (4 floats per register); c18 is the first per-layer tiling vec4.
+    constexpr uintptr_t kVsConstC18    = 0x00D251C0;
+    constexpr uint32_t  kVsConstC18Reg = 18; // start register for the re-upload
+    // Resolved-texture pointer inside a layer slot (slot = node + kOffChunkLayerRecords + i*kChunkLayerRecordStride).
+    constexpr size_t kOffLayerSlotTexture = 0x04;
+    // File-name string (NUL-terminated) inside a resolved texture object.
+    constexpr size_t kOffTextureName = 0x6C;
+
     // --- signatures ---
     // Chunk lookup (pos on stack) -> chunk object.
     using Map_GetChunkFn = void*(__cdecl*)(float* pos);
