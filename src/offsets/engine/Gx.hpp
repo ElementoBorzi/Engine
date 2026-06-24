@@ -87,6 +87,12 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kTexHandleNameField = 0x6C; // texture handle -> stored name (capped 0x104)
     using TextureCreateFn = void*(__cdecl*)(const char* fileName, uint32_t flags, int* status, uint32_t flags2);
 
+    // Process-wide singleton the BLP decode writes per build (mip pointer table at the head of the buffer
+    // it points to) and the upload reads. Not reentrancy-safe: a nested build during a force-wait rewrites
+    // it under the outer build. kMipTablePtr holds the buffer pointer; the table is at *kMipTablePtr.
+    constexpr uintptr_t kMipTablePtr   = 0x00B49C90;
+    constexpr uintptr_t kMipTableValid = 0x00B49C94; // nonzero while the table is live (gates a reload)
+
     // Per-frame liquid render pass loop (this-in-ECX). Brackets every visible liquid instance of one pass;
     // both passes route through it (passType 0 main, 1 secondary). Runs late in the frame, after the liquid
     // textures are bound and the render queues flush, so the wave/ripple animation is already applied.

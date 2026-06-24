@@ -32,6 +32,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -54,8 +55,9 @@ namespace
     m2::M2_SetupBatchAlphaFn   g_origSetupAlpha   = nullptr;
     dd::SpawnFromMDDFFn        g_origDoodadSpawn  = nullptr;
     wmo::Wmo_SpawnFromModfFn   g_origWmoSpawn     = nullptr;
-    gxoff::TextureUpdateFn     g_origTexUpdate    = nullptr;
-    gxoff::TextureCreateFn     g_origTexCreate    = nullptr;
+    gxoff::TextureUpdateFn       g_origTexUpdate    = nullptr;
+    gxoff::TextureCreateFn       g_origTexCreate    = nullptr;
+    wld::AsyncServiceQueuesFn    g_origAsyncDrain   = nullptr;
     adt::Map_ChunkBuildFn      g_origChunkBuild   = nullptr;
     wmo::Wmo_RootCompleteFn    g_origWmoRoot      = nullptr;
     wmo::WmoGroup_ParseFn      g_origWmoGroup     = nullptr;
@@ -202,6 +204,46 @@ namespace
         ev::TextureUploadArgs a{ tex, static_cast<uint32_t>(x2 - x), static_cast<uint32_t>(y2 - y) };
         ev::Emit(ev::Event::OnTextureUpload, &a);
         g_origTexUpdate(tex, x, y, x2, y2, flag);
+    }
+
+    // Per-thread async-drain recursion depth. A texture build force-waits nested loads, which re-enter the
+    // drain; the nested completion's build rewrites the singleton mip-pointer table (and frees its own IO
+    // buffer) under the outer build, so the outer upload then reads a freed alias.
+    thread_local int g_drainDepth = 0;
+
+    /**
+     * @brief Detours the async-queue drain so a reentrant pump cannot clobber the outer build's mip table.
+     *
+     * On a nested (reentrant) drain the mip-pointer table head and its valid flag are snapshotted, the
+     * nested pump runs in full (the awaited completion still finishes, so no wait stalls), then they are
+     * restored. The outer build resumes uploading from its own, intact table. A no-op when no force-wait
+     * re-enters the drain.
+     */
+    int __cdecl hkAsyncDrain()
+    {
+        if (g_drainDepth == 0)
+        {
+            ++g_drainDepth;
+            const int r = g_origAsyncDrain();
+            --g_drainDepth;
+            return r;
+        }
+
+        uint8_t* table = *reinterpret_cast<uint8_t**>(gxoff::kMipTablePtr);
+        uint8_t  save[64];
+        const uint32_t validSave = *reinterpret_cast<uint32_t*>(gxoff::kMipTableValid);
+        if (table) std::memcpy(save, table, sizeof save);
+
+        ++g_drainDepth;
+        const int r = g_origAsyncDrain();
+        --g_drainDepth;
+
+        if (table)
+        {
+            std::memcpy(table, save, sizeof save);
+            *reinterpret_cast<uint32_t*>(gxoff::kMipTableValid) = validSave;
+        }
+        return r;
     }
 
     /**
@@ -407,6 +449,9 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("TextureCreate", gxoff::kTextureCreate,
                                  reinterpret_cast<void*>(&hkTexCreate),
                                  reinterpret_cast<void**>(&g_origTexCreate));
+        wxl::core::hook::Install("AsyncDrain", wld::kAsyncServiceQueues,
+                                 reinterpret_cast<void*>(&hkAsyncDrain),
+                                 reinterpret_cast<void**>(&g_origAsyncDrain));
         wxl::core::hook::Install("ChunkBuild", adt::kChunkBuild,
                                  reinterpret_cast<void*>(&hkChunkBuild),
                                  reinterpret_cast<void**>(&g_origChunkBuild));

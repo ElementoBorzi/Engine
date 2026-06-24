@@ -132,8 +132,10 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kAsyncWaitAll = 0x004BAE10;
     // Pending predicate: nonzero while any async file request still has outstanding work.
     constexpr uintptr_t kAsyncPending = 0x004BAD80;
-    // Service the async queues one pump (called as (0, 0)).
+    // Service the async queues one pump (called as (0, 0)). Re-entered synchronously while a texture
+    // build force-waits a nested load, which is what exposes the singleton mip-table clobber.
     constexpr uintptr_t kAsyncServiceQueues = 0x004B9B20;
+    using AsyncServiceQueuesFn = int(__cdecl*)();
 
     // --- signatures ---
     // World tick + drain (param on stack).
